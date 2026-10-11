@@ -40,6 +40,8 @@ data class Attachment(
     val mimeType: String? = null,
     val title: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
+    /** For links: preview image URL; null = not fetched yet, "" = no preview available. */
+    val previewUrl: String? = null,
 )
 
 @Entity(tableName = "tags", indices = [Index(value = ["name"], unique = true)])

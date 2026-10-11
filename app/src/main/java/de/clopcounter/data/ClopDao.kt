@@ -35,6 +35,9 @@ interface ClopDao {
     @Insert
     suspend fun insertAttachment(attachment: Attachment): Long
 
+    @Query("UPDATE attachments SET previewUrl = :previewUrl, title = COALESCE(title, :title) WHERE id = :id")
+    suspend fun updatePreview(id: Long, previewUrl: String, title: String?)
+
     @Delete
     suspend fun deleteAttachment(attachment: Attachment)
 

@@ -29,13 +29,20 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import de.clopcounter.data.Attachment
+import de.clopcounter.data.AttachmentType
 import de.clopcounter.data.NumberedEntry
 import de.clopcounter.data.Tag
+import java.io.File
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
@@ -81,6 +88,13 @@ fun TagLabel(tag: Tag) {
     }
 }
 
+/** First local image/video, otherwise the first link preview image. */
+private fun thumbnailFor(filesDir: File, attachments: List<Attachment>): Any? {
+    val media = attachments.firstOrNull { it.type == AttachmentType.IMAGE || it.type == AttachmentType.VIDEO }
+    if (media != null) return File(File(filesDir, "attachments"), media.value)
+    return attachments.firstOrNull { it.type == AttachmentType.LINK && !it.previewUrl.isNullOrEmpty() }?.previewUrl
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun EntryRow(entry: NumberedEntry, onClick: () -> Unit, showDate: Boolean = false) {
@@ -112,9 +126,39 @@ fun EntryRow(entry: NumberedEntry, onClick: () -> Unit, showDate: Boolean = fals
                 }
             }
             if (entry.attachments.isNotEmpty()) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.AttachFile, contentDescription = "Anhänge", modifier = Modifier.size(18.dp))
-                    Text("${entry.attachments.size}", style = MaterialTheme.typography.labelLarge)
+                val thumbnail = thumbnailFor(LocalContext.current.filesDir, entry.attachments)
+                Spacer(Modifier.width(8.dp))
+                if (thumbnail != null) {
+                    Box {
+                        AsyncImage(
+                            model = thumbnail,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .size(56.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                        )
+                        if (entry.attachments.size > 1) {
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = Color.Black.copy(alpha = 0.6f),
+                                modifier = Modifier.align(Alignment.BottomEnd).padding(2.dp),
+                            ) {
+                                Text(
+                                    "${entry.attachments.size}",
+                                    color = Color.White,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    modifier = Modifier.padding(horizontal = 4.dp),
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.AttachFile, contentDescription = "Anhänge", modifier = Modifier.size(18.dp))
+                        Text("${entry.attachments.size}", style = MaterialTheme.typography.labelLarge)
+                    }
                 }
             }
         }

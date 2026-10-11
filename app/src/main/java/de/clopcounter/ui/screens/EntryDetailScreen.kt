@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -49,6 +50,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.InputChip
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -68,6 +70,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -84,12 +87,14 @@ import de.clopcounter.data.NumberedEntry
 import de.clopcounter.data.Tag
 import de.clopcounter.ui.ClopViewModel
 import de.clopcounter.ui.LongDateFormat
+import de.clopcounter.ui.MediaViewer
 import de.clopcounter.ui.NumberBadge
 import de.clopcounter.ui.SectionTitle
 import de.clopcounter.ui.TimeFormat
-import kotlinx.coroutines.delay
+import de.clopcounter.ui.ViewerItem
 import java.io.File
 import java.time.LocalDateTime
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -102,6 +107,16 @@ fun EntryDetailScreen(vm: ClopViewModel, entryId: Long, onBack: () -> Unit) {
     var confirmDelete by remember { mutableStateOf(false) }
     var showLinkDialog by remember { mutableStateOf(false) }
     var attachmentToRemove by remember { mutableStateOf<Attachment?>(null) }
+    var viewerIndex by remember { mutableStateOf<Int?>(null) }
+    val loadingPreviews by vm.loadingPreviews.collectAsStateWithLifecycle()
+    val viewerItems = remember(entry?.attachments) { viewerItemsFor(entry?.attachments.orEmpty(), vm::fileFor) }
+
+    // Links added before previews existed (or whose fetch was interrupted) get their preview now.
+    LaunchedEffect(entry?.attachments) {
+        entry?.attachments
+            ?.filter { it.type == AttachmentType.LINK && it.previewUrl == null }
+            ?.forEach(vm::loadPreview)
+    }
 
     val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris ->
         if (uris.isNotEmpty()) vm.addFiles(entryId, uris)
@@ -165,7 +180,9 @@ fun EntryDetailScreen(vm: ClopViewModel, entryId: Long, onBack: () -> Unit) {
             Attachments(
                 attachments = entry.attachments,
                 fileFor = vm::fileFor,
-                onOpen = { openAttachment(context, it, vm.fileFor(it)) },
+                loadingPreviews = loadingPreviews,
+                onView = { a -> viewerIndex = viewerItems.indexOfFirst { it.key == viewerKey(a) }.takeIf { it >= 0 } },
+                onOpenExternal = { openAttachment(context, it, vm.fileFor(it)) },
                 onRemove = { attachmentToRemove = it },
             )
         }
@@ -199,6 +216,18 @@ fun EntryDetailScreen(vm: ClopViewModel, entryId: Long, onBack: () -> Unit) {
                 }) { Text("Entfernen") }
             },
             dismissButton = { TextButton(onClick = { attachmentToRemove = null }) { Text("Abbrechen") } },
+        )
+    }
+
+    viewerIndex?.let { start ->
+        MediaViewer(
+            items = viewerItems,
+            startIndex = start,
+            onDismiss = { viewerIndex = null },
+            onOpenExternal = { item ->
+                entry?.attachments?.find { viewerKey(it) == item.key }
+                    ?.let { openAttachment(context, it, vm.fileFor(it)) }
+            },
         )
     }
 
@@ -329,11 +358,26 @@ private fun AttachmentButtons(onPickMedia: () -> Unit, onAddLink: () -> Unit, on
     }
 }
 
+private fun viewerKey(a: Attachment) = "attachment-${a.id}"
+
+/** Local images/videos first, then images behind links, in the order they are shown. */
+private fun viewerItemsFor(attachments: List<Attachment>, fileFor: (Attachment) -> File): List<ViewerItem> {
+    val media = attachments
+        .filter { it.type == AttachmentType.IMAGE || it.type == AttachmentType.VIDEO }
+        .map { ViewerItem(viewerKey(it), fileFor(it), isVideo = it.type == AttachmentType.VIDEO, caption = it.title) }
+    val linkImages = attachments
+        .filter { it.type == AttachmentType.LINK && !it.previewUrl.isNullOrEmpty() }
+        .map { ViewerItem(viewerKey(it), it.previewUrl!!, caption = it.title ?: Uri.parse(it.value).host) }
+    return media + linkImages
+}
+
 @Composable
 private fun Attachments(
     attachments: List<Attachment>,
     fileFor: (Attachment) -> File,
-    onOpen: (Attachment) -> Unit,
+    loadingPreviews: Set<Long>,
+    onView: (Attachment) -> Unit,
+    onOpenExternal: (Attachment) -> Unit,
     onRemove: (Attachment) -> Unit,
 ) {
     if (attachments.isEmpty()) {
@@ -351,7 +395,7 @@ private fun Attachments(
                         .aspectRatio(1f)
                         .clip(RoundedCornerShape(12.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .clickable { onOpen(a) },
+                        .clickable { onView(a) },
                 ) {
                     AsyncImage(
                         model = fileFor(a),
@@ -367,49 +411,98 @@ private fun Attachments(
                             modifier = Modifier.align(Alignment.Center).size(40.dp),
                         )
                     }
-                    Box(
-                        Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(4.dp)
-                            .size(28.dp)
-                            .clip(CircleShape)
-                            .background(Color.Black.copy(alpha = 0.5f))
-                            .clickable { onRemove(a) },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(Icons.Filled.Close, contentDescription = "Entfernen", tint = Color.White, modifier = Modifier.size(18.dp))
-                    }
+                    RemoveBadge(Modifier.align(Alignment.TopEnd)) { onRemove(a) }
                 }
             }
             repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
         }
     }
 
-    attachments.filter { it.type == AttachmentType.LINK || it.type == AttachmentType.FILE }.forEach { a ->
-        Card(onClick = { onOpen(a) }, modifier = Modifier.fillMaxWidth()) {
+    attachments.filter { it.type == AttachmentType.LINK }.forEach { a ->
+        LinkCard(
+            link = a,
+            loading = a.id in loadingPreviews,
+            onViewImage = { onView(a) },
+            onOpen = { onOpenExternal(a) },
+            onRemove = { onRemove(a) },
+        )
+    }
+
+    attachments.filter { it.type == AttachmentType.FILE }.forEach { a ->
+        Card(onClick = { onOpenExternal(a) }, modifier = Modifier.fillMaxWidth()) {
             Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    if (a.type == AttachmentType.LINK) Icons.Filled.Link else Icons.Filled.Description,
-                    contentDescription = null,
-                )
+                Icon(Icons.Filled.Description, contentDescription = null)
                 Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(a.title ?: a.value, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (a.type == AttachmentType.LINK && a.title != null) {
-                        Text(
-                            a.value,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
+                Text(a.title ?: a.value, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 IconButton(onClick = { onRemove(a) }) {
                     Icon(Icons.Filled.Close, contentDescription = "Entfernen")
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun LinkCard(link: Attachment, loading: Boolean, onViewImage: () -> Unit, onOpen: () -> Unit, onRemove: () -> Unit) {
+    Card(Modifier.fillMaxWidth()) {
+        val preview = link.previewUrl
+        if (!preview.isNullOrEmpty()) {
+            AsyncImage(
+                model = preview,
+                contentDescription = link.title,
+                contentScale = ContentScale.FillWidth,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 80.dp, max = 360.dp)
+                    .clipToBounds()
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .clickable(onClick = onViewImage),
+            )
+        } else if (loading || preview == null) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
+        Row(
+            Modifier
+                .clickable(onClick = onOpen)
+                .padding(start = 12.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Filled.Link, contentDescription = null)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f).padding(vertical = 4.dp)) {
+                Text(
+                    link.title ?: Uri.parse(link.value).host ?: link.value,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                Text(
+                    link.value,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            IconButton(onClick = onRemove) {
+                Icon(Icons.Filled.Close, contentDescription = "Entfernen")
+            }
+        }
+    }
+}
+
+@Composable
+private fun RemoveBadge(modifier: Modifier, onClick: () -> Unit) {
+    Box(
+        modifier
+            .padding(4.dp)
+            .size(28.dp)
+            .clip(CircleShape)
+            .background(Color.Black.copy(alpha = 0.5f))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(Icons.Filled.Close, contentDescription = "Entfernen", tint = Color.White, modifier = Modifier.size(18.dp))
     }
 }
 

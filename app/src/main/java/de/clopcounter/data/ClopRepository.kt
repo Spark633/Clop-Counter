@@ -79,16 +79,22 @@ class ClopRepository(private val context: Context, private val db: AppDatabase) 
         dao.deleteUnusedTags()
     }
 
-    suspend fun addLink(entryId: Long, rawUrl: String, title: String?) {
+    suspend fun addLink(entryId: Long, rawUrl: String, title: String?): Attachment {
         val url = rawUrl.trim().let { if (it.contains("://")) it else "https://$it" }
-        dao.insertAttachment(
-            Attachment(
-                entryId = entryId,
-                type = AttachmentType.LINK,
-                value = url,
-                title = title?.trim()?.takeIf { it.isNotEmpty() },
-            ),
+        val attachment = Attachment(
+            entryId = entryId,
+            type = AttachmentType.LINK,
+            value = url,
+            title = title?.trim()?.takeIf { it.isNotEmpty() },
         )
+        return attachment.copy(id = dao.insertAttachment(attachment))
+    }
+
+    /** Fetches the link's preview image (og:image, or the URL itself if it is an image) and stores it. */
+    suspend fun loadPreview(attachment: Attachment) {
+        if (attachment.type != AttachmentType.LINK) return
+        val preview = withContext(Dispatchers.IO) { LinkPreviewFetcher.fetch(attachment.value) }
+        dao.updatePreview(attachment.id, preview?.imageUrl.orEmpty(), preview?.title)
     }
 
     /** Copies picked media/files into app storage so they stay available. */

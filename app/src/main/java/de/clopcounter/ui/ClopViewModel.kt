@@ -14,6 +14,7 @@ import de.clopcounter.data.computeStats
 import de.clopcounter.data.numberEntries
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -22,6 +23,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.File
 import java.time.LocalDate
@@ -79,7 +81,24 @@ class ClopViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun addLink(id: Long, url: String, title: String?) {
-        viewModelScope.launch { repo.addLink(id, url, title) }
+        viewModelScope.launch { loadPreview(repo.addLink(id, url, title)) }
+    }
+
+    private val _loadingPreviews = MutableStateFlow(emptySet<Long>())
+
+    /** Ids of link attachments whose preview is currently being fetched. */
+    val loadingPreviews: StateFlow<Set<Long>> = _loadingPreviews
+
+    fun loadPreview(attachment: Attachment) {
+        if (attachment.id in _loadingPreviews.value) return
+        _loadingPreviews.update { it + attachment.id }
+        viewModelScope.launch {
+            try {
+                repo.loadPreview(attachment)
+            } finally {
+                _loadingPreviews.update { it - attachment.id }
+            }
+        }
     }
 
     fun removeAttachment(attachment: Attachment) {
