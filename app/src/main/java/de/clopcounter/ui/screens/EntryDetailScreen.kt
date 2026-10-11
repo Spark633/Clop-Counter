@@ -114,8 +114,8 @@ fun EntryDetailScreen(vm: ClopViewModel, entryId: Long, onBack: () -> Unit) {
     // Links added before previews existed (or whose fetch was interrupted) get their preview now.
     LaunchedEffect(entry?.attachments) {
         entry?.attachments
-            ?.filter { it.type == AttachmentType.LINK && it.previewUrl == null }
-            ?.forEach(vm::loadPreview)
+            ?.filter { it.type == AttachmentType.LINK }
+            ?.forEach(vm::loadPreviewIfMissing)
     }
 
     val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris ->
@@ -446,10 +446,14 @@ private fun Attachments(
 private fun LinkCard(link: Attachment, loading: Boolean, onViewImage: () -> Unit, onOpen: () -> Unit, onRemove: () -> Unit) {
     Card(Modifier.fillMaxWidth()) {
         val preview = link.previewUrl
-        if (!preview.isNullOrEmpty()) {
+        var imageFailed by remember(preview) { mutableStateOf(false) }
+        if (loading) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        } else if (!preview.isNullOrEmpty() && !imageFailed) {
             AsyncImage(
                 model = preview,
                 contentDescription = link.title,
+                onError = { imageFailed = true },
                 contentScale = ContentScale.FillWidth,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -458,8 +462,6 @@ private fun LinkCard(link: Attachment, loading: Boolean, onViewImage: () -> Unit
                     .background(MaterialTheme.colorScheme.surfaceVariant)
                     .clickable(onClick = onViewImage),
             )
-        } else if (loading || preview == null) {
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
         }
         Row(
             Modifier

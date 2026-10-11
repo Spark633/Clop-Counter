@@ -89,7 +89,15 @@ class ClopViewModel(app: Application) : AndroidViewModel(app) {
     /** Ids of link attachments whose preview is currently being fetched. */
     val loadingPreviews: StateFlow<Set<Long>> = _loadingPreviews
 
+    private val previewAttempted = mutableSetOf<Long>()
+
+    /** Tries links without a preview image once per app start (e.g. after a network error). */
+    fun loadPreviewIfMissing(attachment: Attachment) {
+        if (attachment.previewUrl.isNullOrEmpty() && previewAttempted.add(attachment.id)) loadPreview(attachment)
+    }
+
     fun loadPreview(attachment: Attachment) {
+        previewAttempted.add(attachment.id)
         if (attachment.id in _loadingPreviews.value) return
         _loadingPreviews.update { it + attachment.id }
         viewModelScope.launch {
