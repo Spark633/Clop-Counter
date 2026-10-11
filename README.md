@@ -12,7 +12,22 @@ Android-App (Kotlin, Jetpack Compose, Room) zum täglichen Zählen: Jeden Tag st
 
 Die Nummer eines Eintrags wird aus der Reihenfolge innerhalb des Tages berechnet. Wird ein Eintrag gelöscht oder zeitlich verschoben, rücken die anderen automatisch nach.
 
-Alle Daten bleiben lokal auf dem Gerät. Angehängte Medien werden in den App-Speicher kopiert, damit sie auch dann erhalten bleiben, wenn das Original aus der Galerie gelöscht wird.
+Ohne Konto bleiben alle Daten lokal auf dem Gerät. Angehängte Medien werden in den App-Speicher kopiert, damit sie auch dann erhalten bleiben, wenn das Original aus der Galerie gelöscht wird.
+
+## Konto & Freunde (optional)
+
+- **Konto** nur mit Nutzername + Passwort (keine E-Mail). Jedes Konto bekommt eine **User-Nr.** (ab #10001) und einen **Wiederherstellungscode** zum Zurücksetzen des Passworts.
+- **Sync & Backup**: Einträge, Tags, Links und Notizen werden mit dem Server abgeglichen und lassen sich so auf ein neues Handy übertragen. **Bilder, Videos und Dateien bleiben nur auf dem Gerät.**
+- **Freunde** per Nutzername oder `#Nr.` hinzufügen; erst nach Annahme sieht man gegenseitig Statistik, Verlauf und die Galerie der geteilten Links. **Notizen sind privat** und für Freunde nie sichtbar.
+
+### Server einrichten (Supabase, kostenloser Tarif reicht)
+
+1. Auf https://supabase.com ein Projekt anlegen.
+2. Im Dashboard **SQL Editor → New query**, den Inhalt von [`supabase/schema.sql`](supabase/schema.sql) einfügen und **Run**.
+3. Unter **Project Settings → API** die **Project URL** und den **anon public key** kopieren.
+4. `supabase.properties.example` nach `supabase.properties` kopieren und beide Werte eintragen. Beide sind öffentlich gedacht; die Daten schützen die Zugriffsregeln (Row Level Security) aus dem Schema.
+
+Ohne `supabase.properties` funktioniert die App wie bisher rein lokal.
 
 ## Bauen
 
