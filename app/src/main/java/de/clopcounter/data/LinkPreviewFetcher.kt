@@ -43,6 +43,9 @@ object LinkPreviewFetcher {
         }
 
         val host = runCatching { Uri.parse(url).host.orEmpty().lowercase().removePrefix("www.") }.getOrDefault("")
+        val path = runCatching { Uri.parse(url).path.orEmpty() }.getOrDefault("")
+
+        imageBoardPreview(host, path)?.let { return it }
         if (host == "tiktok.com" || host.endsWith(".tiktok.com")) {
             oEmbed("https://www.tiktok.com/oembed?url=${encode(url)}")?.takeIf { it.imageUrl != null }?.let { return it }
         }
@@ -65,6 +68,64 @@ object LinkPreviewFetcher {
         if (oembed?.imageUrl != null) return oembed.copy(title = fallback?.title ?: oembed.title)
         return fallback
     }
+
+    // Philomena boorus: /images/123 or /123  ->  /api/v1/json/images/123
+    private val philomenaHosts = setOf(
+        "derpibooru.org", "trixiebooru.org", "furbooru.org", "ponybooru.org",
+        "manebooru.art", "ponerpics.org", "tantabus.ai",
+    )
+    private val philomenaPath = Regex("^/(?:images/)?(\\d+)/?$")
+    private val postsPath = Regex("^/posts/(\\d+)/?$")
+
+    /** Image boards hide their images behind bot protection/filters, but have open JSON APIs. */
+    private fun imageBoardPreview(host: String, path: String): LinkPreview? {
+        philomenaPath.find(path)?.takeIf { host in philomenaHosts }?.let { match ->
+            val id = match.groupValues[1]
+            val image = fetchJson("https://$host/api/v1/json/images/$id")?.optJSONObject("image") ?: return null
+            val reps = image.optJSONObject("representations")
+            val url = listOf("large", "medium", "full", "tall")
+                .firstNotNullOfOrNull { reps?.optString(it)?.takeIf { u -> u.isNotEmpty() } }
+                ?: image.optString("view_url").takeIf { it.isNotEmpty() }
+            val artists = image.optJSONArray("tags")?.let { tags ->
+                (0 until tags.length()).map { tags.optString(it) }.filter { it.startsWith("artist:") }
+            }.orEmpty()
+            val title = "#$id" + if (artists.isEmpty()) "" else " · " + artists.joinToString { it.removePrefix("artist:") }
+            return LinkPreview(imageUrl = url, title = title)
+        }
+
+        val postId = postsPath.find(path)?.groupValues?.get(1) ?: return null
+        return when (host) {
+            "danbooru.donmai.us", "safebooru.donmai.us" -> {
+                val post = fetchJson("https://$host/posts/$postId.json") ?: return null
+                val url = listOf("large_file_url", "file_url", "preview_file_url")
+                    .firstNotNullOfOrNull { post.optString(it).takeIf { u -> u.isNotEmpty() } }
+                LinkPreview(imageUrl = url, title = "#$postId")
+            }
+            "e621.net", "e926.net" -> {
+                val post = fetchJson("https://$host/posts/$postId.json")?.optJSONObject("post") ?: return null
+                val url = listOf("sample", "file", "preview")
+                    .firstNotNullOfOrNull { key ->
+                        post.optJSONObject(key)?.optString("url")?.takeIf { it.isNotEmpty() && it != "null" }
+                    }
+                LinkPreview(imageUrl = url, title = "#$postId")
+            }
+            else -> null
+        }
+    }
+
+    private fun fetchJson(url: String): JSONObject? = runCatching {
+        // e621 requires a descriptive user agent for API access.
+        val conn = open(url, "ClopCounter/1.0 (Android link preview)").apply {
+            instanceFollowRedirects = true
+            setRequestProperty("Accept", "application/json")
+        }
+        try {
+            if (conn.responseCode !in 200..299) return null
+            JSONObject(conn.inputStream.use { readLimited(it) }.toString(Charsets.UTF_8))
+        } finally {
+            conn.disconnect()
+        }
+    }.getOrNull()
 
     private fun oEmbed(endpoint: String): LinkPreview? = runCatching {
         val conn = open(endpoint, BROWSER_USER_AGENT).apply { instanceFollowRedirects = true }
