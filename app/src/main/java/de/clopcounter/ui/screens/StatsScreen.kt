@@ -46,61 +46,70 @@ fun StatsScreen(vm: ClopViewModel, onOpenDay: (LocalDate) -> Unit) {
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = { TopAppBar(title = { Text("Statistik") }) },
     ) { padding ->
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            if (stats.total == 0) {
-                Text("Noch keine Daten. Zähle deinen ersten Clop auf dem Heute-Tab!")
-                return@Column
-            }
-            Overview(stats, onOpenDay)
+        StatsContent(
+            stats,
+            onOpenDay,
+            Modifier.fillMaxSize().padding(padding),
+            emptyText = "Noch keine Daten. Zähle deinen ersten Clop auf dem Heute-Tab!",
+        )
+    }
+}
 
-            StatSection("Wie oft wurde welche Nummer erreicht?") {
-                val max = stats.perNumber.maxOfOrNull { it.second } ?: 0
-                stats.perNumber.forEach { (number, count) ->
-                    val percent = 100 * count / stats.activeDays
-                    BarRow("#$number", count, max, trailing = "$count ($percent%)")
-                }
-                Text(
-                    "Prozent = Anteil der aktiven Tage, an denen diese Nummer erreicht wurde.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+/** The full statistics view; also used for friends' profiles. */
+@Composable
+fun StatsContent(stats: Stats, onOpenDay: (LocalDate) -> Unit, modifier: Modifier = Modifier, emptyText: String) {
+    Column(
+        modifier
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        if (stats.total == 0) {
+            Text(emptyText)
+            return@Column
+        }
+        Overview(stats, onOpenDay)
 
-            StatSection("Tage nach Anzahl") {
-                val max = stats.daysWithExactly.maxOfOrNull { it.second } ?: 0
-                stats.daysWithExactly.forEach { (perDay, days) ->
-                    BarRow("${perDay}×", days, max, trailing = if (days == 1) "1 Tag" else "$days Tage")
-                }
+        StatSection("Wie oft wurde welche Nummer erreicht?") {
+            val max = stats.perNumber.maxOfOrNull { it.second } ?: 0
+            stats.perNumber.forEach { (number, count) ->
+                val percent = 100 * count / stats.activeDays
+                BarRow("#$number", count, max, trailing = "$count ($percent%)")
             }
+            Text(
+                "Prozent = Anteil der aktiven Tage, an denen diese Nummer erreicht wurde.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
 
-            StatSection("Letzte 30 Tage") {
-                Last30Chart(stats.last30Days.map { it.second })
-                Text(
-                    "${stats.last30Days.sumOf { it.second }} Clops in den letzten 30 Tagen",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+        StatSection("Tage nach Anzahl") {
+            val max = stats.daysWithExactly.maxOfOrNull { it.second } ?: 0
+            stats.daysWithExactly.forEach { (perDay, days) ->
+                BarRow("${perDay}×", days, max, trailing = if (days == 1) "1 Tag" else "$days Tage")
             }
+        }
 
-            StatSection("Wochentage") {
-                val max = stats.perWeekday.maxOfOrNull { it.second } ?: 0
-                stats.perWeekday.forEach { (day, count) ->
-                    BarRow(day.getDisplayName(TextStyle.SHORT, GermanLocale), count, max)
-                }
+        StatSection("Letzte 30 Tage") {
+            Last30Chart(stats.last30Days.map { it.second })
+            Text(
+                "${stats.last30Days.sumOf { it.second }} Clops in den letzten 30 Tagen",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        StatSection("Wochentage") {
+            val max = stats.perWeekday.maxOfOrNull { it.second } ?: 0
+            stats.perWeekday.forEach { (day, count) ->
+                BarRow(day.getDisplayName(TextStyle.SHORT, GermanLocale), count, max)
             }
+        }
 
-            if (stats.topTags.isNotEmpty()) {
-                StatSection("Top-Tags") {
-                    val max = stats.topTags.maxOf { it.second }
-                    stats.topTags.forEach { (name, count) -> BarRow(name, count, max) }
-                }
+        if (stats.topTags.isNotEmpty()) {
+            StatSection("Top-Tags") {
+                val max = stats.topTags.maxOf { it.second }
+                stats.topTags.forEach { (name, count) -> BarRow(name, count, max) }
             }
         }
     }

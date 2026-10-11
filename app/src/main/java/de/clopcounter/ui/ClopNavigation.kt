@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Today
 import androidx.compose.material3.Icon
@@ -25,9 +26,13 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import android.net.Uri
+import de.clopcounter.ui.screens.AuthScreen
 import de.clopcounter.ui.screens.CalendarScreen
 import de.clopcounter.ui.screens.DayScreen
 import de.clopcounter.ui.screens.EntryDetailScreen
+import de.clopcounter.ui.screens.FriendProfileScreen
+import de.clopcounter.ui.screens.FriendsScreen
 import de.clopcounter.ui.screens.HistoryScreen
 import de.clopcounter.ui.screens.HomeScreen
 import de.clopcounter.ui.screens.StatsScreen
@@ -38,10 +43,11 @@ private enum class TopDestination(val route: String, val label: String, val icon
     Calendar("calendar", "Kalender", Icons.Filled.CalendarMonth),
     History("history", "Verlauf", Icons.Filled.History),
     Stats("stats", "Statistik", Icons.Filled.BarChart),
+    Friends("friends", "Freunde", Icons.Filled.Group),
 }
 
 @Composable
-fun ClopNavigation(vm: ClopViewModel = viewModel()) {
+fun ClopNavigation(vm: ClopViewModel = viewModel(), social: SocialViewModel = viewModel()) {
     val nav = rememberNavController()
     val backStack by nav.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
@@ -74,6 +80,41 @@ fun ClopNavigation(vm: ClopViewModel = viewModel()) {
                 HistoryScreen(vm, onOpenEntry = openEntry, onOpenDay = openDay)
             }
             composable(TopDestination.Stats.route) { StatsScreen(vm, onOpenDay = openDay) }
+            composable(TopDestination.Friends.route) {
+                FriendsScreen(
+                    social,
+                    onSignIn = { register -> nav.navigate("auth?register=$register") },
+                    onOpenFriend = { f -> nav.navigate("friend/${f.userId}/${Uri.encode(f.username)}/${f.userNumber}") },
+                )
+            }
+            composable(
+                "auth?register={register}",
+                arguments = listOf(navArgument("register") { type = NavType.BoolType; defaultValue = false }),
+            ) {
+                AuthScreen(
+                    social,
+                    startWithRegister = it.arguments?.getBoolean("register") ?: false,
+                    onDone = { nav.popBackStack() },
+                    onBack = { nav.popBackStack() },
+                )
+            }
+            composable(
+                "friend/{id}/{name}/{number}",
+                arguments = listOf(
+                    navArgument("id") { type = NavType.StringType },
+                    navArgument("name") { type = NavType.StringType },
+                    navArgument("number") { type = NavType.LongType },
+                ),
+            ) {
+                val args = it.arguments!!
+                FriendProfileScreen(
+                    social,
+                    userId = args.getString("id")!!,
+                    username = args.getString("name")!!,
+                    userNumber = args.getLong("number"),
+                    onBack = { nav.popBackStack() },
+                )
+            }
             composable(
                 "day/{epochDay}",
                 arguments = listOf(navArgument("epochDay") { type = NavType.LongType }),

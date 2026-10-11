@@ -1,5 +1,6 @@
 package de.clopcounter.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Embedded
 import androidx.room.Entity
 import androidx.room.ForeignKey
@@ -7,15 +8,27 @@ import androidx.room.Index
 import androidx.room.Junction
 import androidx.room.PrimaryKey
 import androidx.room.Relation
+import java.util.UUID
 
 /** One counted "Clop". The daily number (#1, #2, ...) is derived from the order within [epochDay]. */
-@Entity(tableName = "entries", indices = [Index("epochDay")])
+@Entity(tableName = "entries", indices = [Index("epochDay"), Index(value = ["uuid"], unique = true)])
 data class CountEntry(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val timestamp: Long,
     val epochDay: Long,
     val note: String = "",
+    /** Stable id shared with the server. */
+    @ColumnInfo(defaultValue = "''") val uuid: String = UUID.randomUUID().toString(),
+    @ColumnInfo(defaultValue = "0") val updatedAt: Long = System.currentTimeMillis(),
+    /** Changed locally since the last upload. */
+    @ColumnInfo(defaultValue = "1") val dirty: Boolean = true,
+    /** Exists on the server (so a local delete must be uploaded too). */
+    @ColumnInfo(defaultValue = "0") val synced: Boolean = false,
 )
+
+/** Server-side deletes still to be uploaded. */
+@Entity(tableName = "pending_deletes")
+data class PendingDelete(@PrimaryKey val uuid: String)
 
 enum class AttachmentType { IMAGE, VIDEO, FILE, LINK }
 

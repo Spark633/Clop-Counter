@@ -46,8 +46,11 @@ class ClopRepository(private val context: Context, private val db: AppDatabase) 
         AddResult(id, number)
     }
 
-    suspend fun deleteEntry(id: Long) {
+    /** Deletes an entry; [uploadDelete] also removes it from the server on the next sync. */
+    suspend fun deleteEntry(id: Long, uploadDelete: Boolean = true) {
         val files = db.withTransaction {
+            val entry = dao.getEntry(id)
+            if (uploadDelete && entry != null && entry.synced) dao.insertPendingDelete(PendingDelete(entry.uuid))
             val attachments = dao.attachmentsFor(id)
             dao.deleteAttachmentsFor(id)
             dao.removeAllTags(id)
@@ -58,11 +61,19 @@ class ClopRepository(private val context: Context, private val db: AppDatabase) 
         withContext(Dispatchers.IO) { files.forEach { it.delete() } }
     }
 
-    suspend fun updateNote(id: Long, note: String) = dao.updateNote(id, note)
+    private suspend fun touch(entryId: Long) = dao.touch(entryId, System.currentTimeMillis())
+
+    suspend fun updateNote(id: Long, note: String) = db.withTransaction {
+        dao.updateNote(id, note)
+        touch(id)
+    }
 
     suspend fun updateDateTime(id: Long, dateTime: LocalDateTime) {
         val ts = dateTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-        dao.updateTime(id, ts, dateTime.toLocalDate().toEpochDay())
+        db.withTransaction {
+            dao.updateTime(id, ts, dateTime.toLocalDate().toEpochDay())
+            touch(id)
+        }
     }
 
     suspend fun addTag(entryId: Long, rawName: String) {
@@ -71,12 +82,14 @@ class ClopRepository(private val context: Context, private val db: AppDatabase) 
         db.withTransaction {
             val tag = dao.findTag(name) ?: Tag(id = dao.insertTag(Tag(name = name)), name = name)
             dao.insertCrossRef(EntryTagCrossRef(entryId, tag.id))
+            touch(entryId)
         }
     }
 
     suspend fun removeTag(entryId: Long, tagId: Long) = db.withTransaction {
         dao.removeTag(entryId, tagId)
         dao.deleteUnusedTags()
+        touch(entryId)
     }
 
     suspend fun addLink(entryId: Long, rawUrl: String, title: String?): Attachment {
@@ -87,14 +100,21 @@ class ClopRepository(private val context: Context, private val db: AppDatabase) 
             value = url,
             title = title?.trim()?.takeIf { it.isNotEmpty() },
         )
-        return attachment.copy(id = dao.insertAttachment(attachment))
+        return db.withTransaction {
+            val id = dao.insertAttachment(attachment)
+            touch(entryId)
+            attachment.copy(id = id)
+        }
     }
 
     /** Fetches the link's preview image (og:image, or the URL itself if it is an image) and stores it. */
     suspend fun loadPreview(attachment: Attachment) {
         if (attachment.type != AttachmentType.LINK) return
         val preview = withContext(Dispatchers.IO) { LinkPreviewFetcher.fetch(attachment.value) }
-        dao.updatePreview(attachment.id, preview?.imageUrl.orEmpty(), preview?.title)
+        db.withTransaction {
+            dao.updatePreview(attachment.id, preview?.imageUrl.orEmpty(), preview?.title)
+            touch(attachment.entryId)
+        }
     }
 
     /** Copies picked media/files into app storage so they stay available. */
@@ -131,7 +151,11 @@ class ClopRepository(private val context: Context, private val db: AppDatabase) 
     }
 
     suspend fun removeAttachment(attachment: Attachment) {
-        dao.deleteAttachment(attachment)
+        db.withTransaction {
+            dao.deleteAttachment(attachment)
+            // Local images/files are never uploaded; only links are part of the synced entry.
+            if (attachment.type == AttachmentType.LINK) touch(attachment.entryId)
+        }
         if (attachment.type != AttachmentType.LINK) {
             withContext(Dispatchers.IO) { fileFor(attachment).delete() }
         }

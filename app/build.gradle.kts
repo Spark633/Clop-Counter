@@ -1,8 +1,15 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp")
+}
+
+// Supabase project settings (URL + public anon key), see README / supabase.properties.example.
+val supabase = Properties().apply {
+    rootProject.file("supabase.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
 }
 
 android {
@@ -15,6 +22,9 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
+
+        buildConfigField("String", "SUPABASE_URL", "\"${supabase.getProperty("url", "")}\"")
+        buildConfigField("String", "SUPABASE_ANON_KEY", "\"${supabase.getProperty("anonKey", "")}\"")
     }
 
     signingConfigs {
@@ -42,6 +52,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

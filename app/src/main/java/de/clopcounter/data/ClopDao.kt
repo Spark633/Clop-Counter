@@ -67,4 +67,58 @@ interface ClopDao {
 
     @Query("DELETE FROM tags WHERE id NOT IN (SELECT tagId FROM entry_tags)")
     suspend fun deleteUnusedTags()
+
+    // ---------------------------------------------------------------- sync
+
+    @Query("SELECT * FROM entries WHERE id = :id")
+    suspend fun getEntry(id: Long): CountEntry?
+
+    @Query("SELECT * FROM entries WHERE uuid = :uuid")
+    suspend fun findByUuid(uuid: String): CountEntry?
+
+    /** Marks an entry as changed so it gets uploaded. */
+    @Query("UPDATE entries SET dirty = 1, updatedAt = MAX(updatedAt + 1, :now) WHERE id = :id")
+    suspend fun touch(id: Long, now: Long)
+
+    @Query("SELECT COUNT(*) FROM entries WHERE dirty = 1")
+    fun observeDirtyCount(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM pending_deletes")
+    fun observePendingDeleteCount(): Flow<Int>
+
+    @Transaction
+    @Query("SELECT * FROM entries WHERE dirty = 1")
+    suspend fun dirtyEntries(): List<EntryWithDetails>
+
+    /** Only clears the flag if the entry was not changed again during the upload. */
+    @Query("UPDATE entries SET dirty = 0, synced = 1 WHERE id = :id AND updatedAt = :updatedAt")
+    suspend fun markClean(id: Long, updatedAt: Long)
+
+    @Query("SELECT * FROM entries WHERE synced = 1 AND dirty = 0")
+    suspend fun syncedCleanEntries(): List<CountEntry>
+
+    /** Treat everything as new local data, e.g. after switching accounts. */
+    @Query("UPDATE entries SET synced = 0, dirty = 1")
+    suspend fun markAllUnsynced()
+
+    @Query(
+        "UPDATE entries SET timestamp = :timestamp, epochDay = :epochDay, note = :note, " +
+            "updatedAt = :updatedAt, dirty = 0, synced = 1 WHERE id = :id",
+    )
+    suspend fun applyRemote(id: Long, timestamp: Long, epochDay: Long, note: String, updatedAt: Long)
+
+    @Query("DELETE FROM attachments WHERE entryId = :entryId AND type = 'LINK'")
+    suspend fun deleteLinksFor(entryId: Long)
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertPendingDelete(pending: PendingDelete)
+
+    @Query("SELECT uuid FROM pending_deletes")
+    suspend fun pendingDeletes(): List<String>
+
+    @Query("DELETE FROM pending_deletes WHERE uuid IN (:uuids)")
+    suspend fun clearPendingDeletes(uuids: List<String>)
+
+    @Query("DELETE FROM pending_deletes")
+    suspend fun clearAllPendingDeletes()
 }
